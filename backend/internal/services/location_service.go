@@ -116,7 +116,13 @@ func (s *LocationService) UpdateLocation(ctx context.Context, req *models.Update
 	// exited  = previous - current
 	var enteredZones, exitedZones []models.GeofenceRef
 
-	if !isFirstUpdate {
+	if isFirstUpdate {
+		// On first update, every geofence the vehicle is currently inside counts
+		// as an enter event — the vehicle is being tracked for the first time.
+		for _, ref := range currentGeofences {
+			enteredZones = append(enteredZones, ref)
+		}
+	} else {
 		for id, ref := range currentSet {
 			if _, wasPrev := prevStateIDs[id]; !wasPrev {
 				enteredZones = append(enteredZones, ref)
@@ -135,7 +141,6 @@ func (s *LocationService) UpdateLocation(ctx context.Context, req *models.Update
 			}
 		}
 	}
-	// On first update we just initialize state — no events generated.
 
 	// ── 8. Persist location ───────────────────────────────────────────────────
 	if err = s.locRepo.UpsertLocationTx(ctx, tx, req.VehicleID, req.Latitude, req.Longitude, req.Timestamp); err != nil {
