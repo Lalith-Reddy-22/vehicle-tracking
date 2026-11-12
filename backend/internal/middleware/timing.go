@@ -2,19 +2,35 @@
 package middleware
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
+	"fmt"
+	"net"
 	"net/http"
 	"strconv"
 	"time"
 )
 
 // responseWriter wraps http.ResponseWriter to capture the status code and body.
+// It also implements http.Hijacker by delegating to the underlying writer when
+// available — this is required for WebSocket upgrades. However, the WebSocket
+// route should bypass this middleware entirely (see main.go).
 type responseWriter struct {
 	http.ResponseWriter
-	status int
-	body   bytes.Buffer
+	status  int
+	body    bytes.Buffer
 	written bool
+}
+
+// Hijack implements http.Hijacker by delegating to the underlying ResponseWriter.
+// Without this, Gorilla WebSocket upgrade fails with "does not implement http.Hijacker".
+func (rw *responseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	h, ok := rw.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, fmt.Errorf("underlying ResponseWriter does not implement http.Hijacker")
+	}
+	return h.Hijack()
 }
 
 func (rw *responseWriter) WriteHeader(status int) {

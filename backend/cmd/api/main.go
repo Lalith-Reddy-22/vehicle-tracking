@@ -82,33 +82,48 @@ func main() {
 	statsHandler      := handlers.NewStatsHandler(pool)
 
 	// ── Router ────────────────────────────────────────────────────────────────
-	r := chi.NewRouter()
+	// We use TWO routers joined by a plain http.ServeMux:
+	//   apiRouter  — has TimingMiddleware (all JSON endpoints)
+	//   wsRouter   — no TimingMiddleware (WebSocket upgrade needs raw Hijacker)
+	// This is the only reliable way to exclude a single route from a middleware
+	// that wraps the ResponseWriter.
 
-	// Global middleware (applied before timing so the full chain is measured).
-	r.Use(chimiddleware.RequestID)
-	r.Use(chimiddleware.RealIP)
-	r.Use(chimiddleware.Recoverer)
-	r.Use(appmiddleware.CORS(cfg.CORS.AllowedOrigins))
-	r.Use(appmiddleware.TimingMiddleware)
+	// API router — CORS + timing on every JSON response.
+	apiRouter := chi.NewRouter()
+	apiRouter.Use(chimiddleware.RequestID)
+	apiRouter.Use(chimiddleware.RealIP)
+	apiRouter.Use(chimiddleware.Recoverer)
+	apiRouter.Use(appmiddleware.CORS(cfg.CORS.AllowedOrigins))
+	apiRouter.Use(appmiddleware.TimingMiddleware)
 
-	// Routes.
-	geofenceHandler.RegisterRoutes(r)
-	vehicleHandler.RegisterRoutes(r)
-	alertRuleHandler.RegisterRoutes(r)
-	violationHandler.RegisterRoutes(r)
-	statsHandler.RegisterRoutes(r)
-	r.Get("/ws/alerts", wsHandler.ServeWS)
+	geofenceHandler.RegisterRoutes(apiRouter)
+	vehicleHandler.RegisterRoutes(apiRouter)
+	alertRuleHandler.RegisterRoutes(apiRouter)
+	violationHandler.RegisterRoutes(apiRouter)
+	statsHandler.RegisterRoutes(apiRouter)
 
-	// Health check — excluded from timing middleware.
-	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
+	apiRouter.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`{"status":"ok"}`))
 	})
 
+	// WebSocket router — CORS only, NO timing middleware.
+	// Gorilla WebSocket upgrade requires the raw net.Conn via http.Hijacker.
+	// Any ResponseWriter wrapper that doesn't forward Hijacker breaks the upgrade.
+	wsRouter := chi.NewRouter()
+	wsRouter.Use(chimiddleware.Recoverer)
+	wsRouter.Use(appmiddleware.CORS(cfg.CORS.AllowedOrigins))
+	wsRouter.Get("/ws/alerts", wsHandler.ServeWS)
+
+	// Top-level mux routes /ws/* to wsRouter, everything else to apiRouter.
+	mux := http.NewServeMux()
+	mux.Handle("/ws/", wsRouter)
+	mux.Handle("/", apiRouter)
+
 	// ── HTTP Server ───────────────────────────────────────────────────────────
 	srv := &http.Server{
 		Addr:         ":" + cfg.Port,
-		Handler:      r,
+		Handler:      mux,
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 30 * time.Second,
 		IdleTimeout:  120 * time.Second,
