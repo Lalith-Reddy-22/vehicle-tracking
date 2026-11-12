@@ -1,0 +1,54 @@
+services:
+  postgres:
+    image: postgis/postgis:16-3.4-alpine
+    container_name: vtrack_postgres
+    environment:
+      POSTGRES_USER: vtrack
+      POSTGRES_PASSWORD: vtrack_pass
+      POSTGRES_DB: vehicle_tracking
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vtrack -d vehicle_tracking"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: vtrack_backend
+    env_file:
+      - ./backend/.env
+    environment:
+      DATABASE_URL: postgres://vtrack:vtrack_pass@postgres:5432/vehicle_tracking?sslmode=disable
+      PORT: 8080
+      ENV: development
+      CORS_ALLOWED_ORIGINS: http://localhost:5173
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: vtrack_frontend
+    environment:
+      VITE_API_BASE_URL: http://localhost:8080
+      VITE_WS_URL: ws://localhost:8080/ws/alerts
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
