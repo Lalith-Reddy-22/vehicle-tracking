@@ -1,0 +1,23 @@
+# Env files (never commit secrets)
+**/.env
+!**/.env.example
+
+# Go build artifacts
+backend/server
+backend/vendor/
+
+# Node
+frontend/node_modules/
+frontend/dist/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker volumes
+postgres_data/
