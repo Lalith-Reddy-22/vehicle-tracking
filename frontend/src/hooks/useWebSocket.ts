@@ -5,7 +5,12 @@
 import { useEffect, useRef, useState } from 'react';
 import type { WSAlert, ConnectionStatus } from '../types';
 
-const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8080/ws/alerts';
+const getWebSocketUrl = () => {
+  if (typeof window !== 'undefined' && window.location.protocol === 'https:') {
+    return `wss://${window.location.host}/ws/alerts`;
+  }
+  return import.meta.env.VITE_WS_URL || 'ws://localhost:8080/ws/alerts';
+};
 
 const MIN_RECONNECT_MS = 1_000;
 const MAX_RECONNECT_MS = 30_000;
@@ -28,7 +33,8 @@ export function useWebSocket(onAlert: (alert: WSAlert) => void): ConnectionStatu
       if (unmounted) return;
       setStatus('connecting');
 
-      ws = new WebSocket(WS_URL);
+      const wsUrl = getWebSocketUrl();
+      ws = new WebSocket(wsUrl);
 
       ws.onopen = () => {
         if (unmounted) {

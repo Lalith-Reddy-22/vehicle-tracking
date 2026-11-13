@@ -17,10 +17,15 @@ import type {
   ViolationHistoryResponse,
 } from '../types';
 
-const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080';
+const getBaseURL = () => {
+  if (typeof window !== 'undefined' && window.location.protocol === 'https:') {
+    return '';
+  }
+  return import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080';
+};
 
 export const api = axios.create({
-  baseURL: BASE_URL,
+  baseURL: getBaseURL(),
   headers: { 'Content-Type': 'application/json' },
 });
 
