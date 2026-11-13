@@ -2,6 +2,13 @@
 
 **MapUp Hiring Assessment** — Full-stack fleet management system with real-time GPS tracking, geofence boundary detection, and WebSocket alert delivery.
 
+> 📄 **Assessment Reviewers:** See [ASSESSMENT_SOLUTION.md](./ASSESSMENT_SOLUTION.md) for the complete problem statement mapping, spatial architecture deep dive, and video presentation guide.
+>
+> 🌐 **Live Cloud Deployment (AWS):**
+> - **Frontend Web App:** [http://vtrack-frontend-206744325548.s3-website.ap-south-1.amazonaws.com](http://vtrack-frontend-206744325548.s3-website.ap-south-1.amazonaws.com)
+> - **Backend API:** [http://vtrack-alb-425233347.ap-south-1.elb.amazonaws.com](http://vtrack-alb-425233347.ap-south-1.elb.amazonaws.com)
+> - **WebSocket Alerts:** `ws://vtrack-alb-425233347.ap-south-1.elb.amazonaws.com/ws/alerts`
+
 ## Quick Start
 
 ```bash

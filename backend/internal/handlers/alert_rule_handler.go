@@ -28,12 +28,16 @@ func (h *AlertRuleHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if req.EventType == "entry" {
+		req.EventType = models.AlertEventEnter
+	}
+
 	switch req.EventType {
 	case models.AlertEventEnter, models.AlertEventExit, models.AlertEventBoth:
 		// valid
 	default:
 		utils.Error(w, http.StatusUnprocessableEntity, "validation_error",
-			"event_type must be one of: enter, exit, both")
+			"event_type must be one of: enter, entry, exit, both")
 		return
 	}
 
@@ -110,4 +114,8 @@ func (h *AlertRuleHandler) RegisterRoutes(r chi.Router) {
 	r.Get("/alert-rules", h.List)
 	r.Patch("/alert-rules/{id}", h.Update)
 	r.Delete("/alert-rules/{id}", h.Delete)
+
+	// MapUp specification alias routes:
+	r.Post("/alerts/configure", h.Create)
+	r.Get("/alerts", h.List)
 }

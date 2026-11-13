@@ -1,0 +1,318 @@
+MapUp Full-Stack Assessment - Geofencing and Real-Time Alert System
+Technical Architecture and Solution Walkthrough
+
+Repository: github.com/Lalith-Reddy-22/vehicle-tracking
+Live app: http://vtrack-frontend-206744325548.s3-website.ap-south-1.amazonaws.com
+Live REST API: http://vtrack-alb-425233347.ap-south-1.elb.amazonaws.com
+Live WebSocket alerts: ws://vtrack-alb-425233347.ap-south-1.elb.amazonaws.com/ws/alerts
+
+
+1. SUMMARY
+
+I built a full-stack vehicle tracking, geofencing and real-time alert system covering all the requirements in the MapUp Full-Stack Developer Assessment.
+
+What it does:
+
+1. Go backend - REST API using Go and the Chi router. Every JSON response includes time_ns (execution time in nanoseconds). Config is done the 12-factor way (environment variables).
+
+2. PostGIS for geospatial work - PostgreSQL 16 with PostGIS 3.4 and a GiST spatial index. Point-in-polygon checks use ST_Covers.
+
+3. Entry/exit detection - I lock the vehicle's row with SELECT FOR UPDATE and use set difference to work out which zones a vehicle entered or exited. This avoids race conditions.
+
+4. Real-time WebSocket hub - Gorilla WebSocket, one goroutine for the hub, broadcasts alerts to dashboard clients without blocking the HTTP location ingestion.
+
+5. React 19 frontend - Vite, TypeScript, Tailwind CSS and Leaflet. Three map styles (Cyber Dark, Voyager, Satellite), click-on-map to move a vehicle, geofence polygon display, live toast alerts and a paginated violation history.
+
+6. Deployment - Docker multi-stage builds and Docker Compose locally. Live on AWS (ECS Fargate on ARM64 Graviton, RDS PostgreSQL with PostGIS, ALB, S3). GitHub Actions handles CI/CD.
+
+
+2. SYSTEM ARCHITECTURE
+
+Frontend (React 19 + Vite + Tailwind)
+  - Map canvas (Leaflet with the map styles)
+  - Live toast alerts (WebSocket with auto reconnect)
+  - Vehicle and geofence CRUD pages (hover rules, input sanitizing)
+
+  Frontend talks to the backend in 3 ways:
+  - HTTP POST /vehicles/location for telemetry
+  - WebSocket /ws/alerts for live alerts
+  - HTTP REST for everything else
+
+Backend (Go 1.25, Chi router)
+  - TimingMiddleware: adds time_ns to every JSON response
+  - Handlers: Geofence, Vehicle, Alert Rule, Violation
+  - Location Service:
+      * SELECT FOR UPDATE (row lock)
+      * ST_Covers spatial query
+      * set difference to calculate entry/exit
+  - WebSocket Hub:
+      * single goroutine
+      * non-blocking fan-out
+      * per-client buffering
+
+Database (PostgreSQL 16.15 with PostGIS 3.4)
+  - geofences: geometry(Polygon, 4326) with GiST index
+  - vehicles: UUID, unique vehicle_number, driver, phone, type
+  - vehicle_locations: last known coordinates and timestamp (the locked row)
+  - vehicle_geofence_state: which zones a vehicle is currently inside
+  - alert_rules: triggers (entry / exit / both), zone, vehicle
+  - violations: audit log of all boundary crossings and alerts sent
+
+
+3. REQUIREMENTS AND HOW I IMPLEMENTED THEM
+
+API response timing (time_ns)
+This one is mandatory. A custom middleware records time.Now() before the request runs and wraps the response writer so that time_ns (in nanoseconds) gets injected into every JSON response.
+File: backend/internal/middleware/timing.go
+
+1. POST /geofences
+Validates that the ring is closed (first point equals last), at least 4 points, coordinates in range (-90 to 90 for lat, -180 to 180 for lon), and a valid category. Saved as a native PostGIS geometry(Polygon, 4326).
+File: backend/internal/handlers/geofence_handler.go
+
+2. GET /geofences
+Returns all geofences, with an optional ?category=... filter. Polygons are converted back to [[lat, lon], ...] order.
+File: backend/internal/handlers/geofence_handler.go
+
+3. POST /vehicles
+Registers a vehicle with a unique registration number, driver name, vehicle type and phone. Returns the id and status.
+File: backend/internal/handlers/vehicle_handler.go
+
+4. GET /vehicles
+Lists all registered vehicles with their details and registration timestamps.
+File: backend/internal/handlers/vehicle_handler.go
+
+5. POST /vehicles/location
+Takes GPS data and starts a DB transaction. Runs the ST_Covers query, works out entered/exited zones with set difference, saves violations, checks alert rules, sends WebSocket alerts asynchronously, and updates the location.
+File: backend/internal/services/location_service.go
+
+6. GET /vehicles/location/{id}
+Returns the vehicle's current latitude, longitude, timestamp, and all geofences it is currently inside.
+File: backend/internal/handlers/vehicle_handler.go
+
+7. POST /alerts/configure
+Sets up alerts for geofence entry, exit or both. Can be for one vehicle or the whole fleet. Also available at /alert-rules.
+File: backend/internal/handlers/alert_rule_handler.go
+
+8. GET /alerts
+Lists active alert rules, filterable by geofence and vehicle. Also available at /alert-rules.
+File: backend/internal/handlers/alert_rule_handler.go
+
+9. GET /violations/history
+Returns past entry/exit events. Can filter by vehicle, geofence and date range, with limit/offset pagination.
+File: backend/internal/handlers/violation_handler.go
+
+Real-time alert system
+Gorilla WebSocket hub at /ws/alerts. It broadcasts the JSON format given in the assessment, asynchronously. Entering a restricted_zone automatically triggers an alert.
+File: backend/internal/websocket/hub.go
+
+Interactive map frontend
+React 19 + Leaflet with the Cyber Dark / Voyager / Satellite switcher, polygon preview, vehicle markers, and click-on-map location updates.
+File: frontend/src/pages/LiveMapPage.tsx
+
+Live notifications
+A React hook with exponential backoff reconnection, sound alerts, toast popups and live counters.
+File: frontend/src/hooks/useWebSocket.ts
+
+
+4. GEOSPATIAL AND BOUNDARY DETECTION
+
+4.1 Why PostGIS and not ray-casting in memory
+
+A lot of basic solutions run point-in-polygon (like the ray-casting algorithm) in Go memory. That is O(N x V), where N is the number of geofences and V is the number of vertices. With something like 10,000 geofences and 500 GPS updates per second, that would eat a lot of CPU and memory bandwidth.
+
+4.2 Spatial index (GiST / R-Tree)
+
+I let PostgreSQL with PostGIS 3.4 do the spatial work using a GiST index:
+
+  CREATE INDEX idx_geofences_geometry ON geofences USING GIST (geometry);
+
+- The R-Tree checks bounding boxes first, so almost all non-matching polygons are skipped in roughly O(log N).
+- ST_Covers(geometry, ST_SetSRID(ST_MakePoint($1, $2), 4326)) checks the boundary exactly and includes points on the polygon edge, with no projection distortion.
+
+4.3 State machine and set difference
+
+To know whether a vehicle entered or exited a zone, I compare the zones that currently cover the new point against the saved state in vehicle_geofence_state.
+
+Let S_prev = zones the vehicle was inside at the last update
+Let S_current = zones covering the new point
+
+  Entered zones   = S_current minus S_prev
+  Exited zones    = S_prev minus S_current
+  Unchanged       = S_current intersect S_prev
+
+4.4 Concurrency and race conditions
+
+GPS devices can send updates quickly one after another, or out of order. To handle this:
+
+1. The service starts an explicit DB transaction (pgx.Tx).
+2. It locks the vehicle's location row:
+
+   SELECT latitude, longitude, timestamp FROM vehicle_locations
+   WHERE vehicle_id = $1 FOR UPDATE;
+
+3. If the new timestamp is less than or equal to the previous one (t_new <= t_prev), the update is rejected with HTTP 422 so history stays consistent.
+4. Violations are written and vehicle_geofence_state is updated in the same transaction.
+5. The lock is released on commit, so there are no lost updates or duplicate alerts.
+
+
+5. REAL-TIME ALERT SYSTEM
+
+5.1 WebSocket hub
+
+The hub runs as its own goroutine (hub.Run()).
+- Register, unregister and broadcast are all handled through buffered Go channels.
+- Handlers send alerts to the hub with a non-blocking channel send, so an HTTP request never waits on a slow client.
+- Each client has its own 256-event buffer. If a client stalls, it gets disconnected instead of slowing everyone else down.
+
+5.2 Alert matching
+
+When a boundary event is detected, alertRepo.FindMatchingRules looks for:
+1. A rule for the exact (vehicle_id, geofence_id, event_type).
+2. A geofence-wide rule for all vehicles (vehicle_id is NULL, geofence_id, event_type).
+3. A vehicle rule across all geofences (vehicle_id, geofence_id is NULL, event_type).
+4. A global rule (both NULL, event_type).
+5. Restricted zone override: entering any geofence with category = 'restricted_zone' always triggers an alert, whatever the rules say.
+
+5.3 WebSocket payload
+
+Alerts sent over ws://.../ws/alerts follow the assessment format exactly:
+
+{
+  "event_id": "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d",
+  "event_type": "enter",
+  "timestamp": "2026-11-13T09:00:00Z",
+  "vehicle": {
+    "vehicle_id": "0da00df3-576e-4320-ba89-35715c30024a",
+    "vehicle_number": "MH-01-AB-1234",
+    "driver_name": "Rajesh Kumar"
+  },
+  "geofence": {
+    "geofence_id": "e0ccc21c-9a36-4c8a-9189-49ab67e7a1ef",
+    "geofence_name": "Central Hub",
+    "category": "delivery_zone"
+  },
+  "location": {
+    "latitude": 19.0780,
+    "longitude": 72.8800
+  }
+}
+
+
+6. FRONTEND
+
+It is a single-page React 19 app in TypeScript with Tailwind CSS.
+
+1. Live Fleet Tracking (/map)
+   - Leaflet map with glowing radar-ring markers for vehicles.
+   - Map style toggle: Cyber Dark, Voyager, Satellite.
+   - Click-to-teleport: with a vehicle selected, click anywhere on the map to send GPS telemetry and trigger boundary detection.
+   - Searchable fleet list with a Fly-To zoom.
+
+2. Geofence Command (/geofences)
+   - Uses the same map canvas as the live map.
+   - Polygons are colored by category (Delivery, Restricted, Toll, Customer).
+   - Boundary coordinate inputs with validation.
+   - Edit and delete geofences, with protection for ones that have history.
+
+3. Vehicle Fleet Registry (/vehicles)
+   - Add vehicle modal with (i) hover tooltips explaining each field's rules.
+   - Vehicle type dropdown: Truck, Van, Trailer, Pickup, Tanker, Car, Motorcycle, Bus.
+   - Phone field accepts digits only, with a 10-digit counter (X/10).
+   - Inline row editing, and deleting shows a cascade warning.
+
+4. Alert Configuration (/rules)
+   - Create alert rules for specific zones or vehicles.
+   - Turn rules on or off instantly.
+
+5. Violation History (/history)
+   - Paginated log with vehicle, geofence and date range filters.
+   - CSV export.
+
+
+7. INFRASTRUCTURE AND DEPLOYMENT
+
+7.1 Local (Docker Compose)
+
+One command starts everything:
+
+  docker compose up -d
+
+- vtrack_postgres: PostgreSQL 16 + PostGIS 3.4 (Alpine)
+- vtrack_backend: multi-stage build, Go 1.25 Alpine binary
+- vtrack_frontend: multi-stage build, Nginx Alpine serving the Vite React app
+
+7.2 AWS (ap-south-1, Mumbai)
+
+- Database: AWS RDS PostgreSQL 16.15 (db.t3.micro) with PostGIS 3.4 enabled.
+- Compute: AWS ECS Fargate running ARM64 Graviton containers.
+- Load balancer: Application Load Balancer, passes through the HTTP 101 WebSocket upgrade.
+- Frontend: S3 static website hosting with SPA routing fallback.
+- CI/CD: GitHub Actions builds multi-arch Docker images, pushes to ECR, does a rolling update on ECS, and syncs the frontend build to S3.
+
+
+8. TESTING AND VERIFICATION
+
+8.1 Unit tests (35 passing)
+
+Tests are in backend/tests/ and cover the core logic:
+
+$ go test -race ./tests/... -v
+PASS: TestAlertRule_ActiveEnterMatch (0.00s)
+PASS: TestAlertRule_WrongGeofence (0.00s)
+PASS: TestRestrictedZoneDefaultAlert (0.00s)
+PASS: TestValidatePolygon_Valid (0.00s)
+PASS: TestValidatePolygon_TooFewPoints (0.00s)
+PASS: TestValidatePolygon_NotClosed (0.00s)
+PASS: TestOutOfOrder_PastTimestampRejected (0.00s)
+PASS: TestDiff_EnteredZone (0.00s)
+PASS: TestDiff_ExitedZone (0.00s)
+PASS: TestDiff_OverlappingGeofences (0.00s)
+ok      github.com/mapup/vehicle-tracking/tests 0.737s
+
+8.2 Live curl checks
+
+# 1. Health check and nanosecond timing
+curl -s http://vtrack-alb-425233347.ap-south-1.elb.amazonaws.com/health
+# {"status":"ok","time_ns":"18248"}
+
+# 2. Fleet stats
+curl -s http://vtrack-alb-425233347.ap-south-1.elb.amazonaws.com/stats
+# {"active_alert_rules":0,"time_ns":"871269","total_geofences":1,"total_vehicles":1,"total_violations":1}
+
+# 3. WebSocket handshake
+curl -i -N \
+  -H "Connection: Upgrade" \
+  -H "Upgrade: websocket" \
+  -H "Sec-WebSocket-Version: 13" \
+  -H "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==" \
+  -H "Origin: http://vtrack-frontend-206744325548.s3-website.ap-south-1.amazonaws.com" \
+  http://vtrack-alb-425233347.ap-south-1.elb.amazonaws.com/ws/alerts
+# Returns: HTTP/1.1 101 Switching Protocols
+
+
+9. VIDEO SUBMISSION PLAN (30-45 MIN)
+
+Part 1: Working app demo (10-12 min)
+1. Local setup: run docker compose up -d and show PostgreSQL + PostGIS, the Go API and the React frontend starting.
+2. Dashboard: go through the live numbers (active vehicles, geofences, violations, WebSocket status).
+3. Geofence creation: open the Geofences page, switch map layers (Cyber Dark / Satellite), create a restricted_zone polygon.
+4. Vehicle registration: register a vehicle, showing the 10-digit phone validation and the vehicle type dropdown.
+5. Real-time telemetry and alerts: open the Live Map and click inside the restricted zone. Show the boundary crossing being detected, the toast alert arriving over WebSocket, and the vehicle status changing to "Inside 1 zone".
+6. Violation audit: open Violation History and show the vehicle/geofence filters and date range search.
+
+Part 2: Code walkthrough (12-18 min)
+1. Go structure: cmd/api/main.go, handlers/, services/, repositories/.
+2. Timing middleware: show how TimingMiddleware measures elapsed time with time.Since() and puts time_ns in every response.
+3. PostGIS logic: location_service.go, covering the SELECT FOR UPDATE transaction, the ST_Covers query and the set difference for entry/exit.
+4. WebSocket hub: websocket/hub.go, pointing out the non-blocking buffered channels and concurrency safety.
+5. React side: LiveMapPage.tsx, the Leaflet integration, and useWebSocket.ts with exponential backoff.
+
+Part 3: Gaps, scaling and roadmap (10-15 min)
+1. Current limitations and edge cases handled:
+   - Out-of-order timestamps are rejected.
+   - Self-intersecting and degenerate polygons are blocked by validation.
+2. Scaling to 100,000+ vehicles:
+   - Message queue: put Kafka or AWS SQS in front of the location service to absorb bursts of telemetry.
+   - Redis Geo / caching: keep last known coordinates and active geofence sets in Redis to cut database reads.
+   - Distributed WebSockets: use Redis Pub/Sub to sync alerts across multiple backend replicas.
+   - TimescaleDB partitioning: partition the violations and vehicle_locations tables by month or week so queries stay fast.
