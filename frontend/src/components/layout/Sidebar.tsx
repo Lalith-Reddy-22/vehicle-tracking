@@ -44,9 +44,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
       <div className="pointer-events-none absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-[#8B9A6E]/15 to-transparent" />
 
       {/* Brand Header */}
-      <div className="relative px-4 py-5 border-b border-[#D6CCBE] flex items-center justify-between">
-        <div className="flex items-center gap-3 overflow-hidden">
-          <div className="relative w-10 h-10 rounded-xl bg-[#8B9A6E] p-[1px] shadow-glow-sage flex-shrink-0">
+      <div
+        className={`relative border-b border-[#D6CCBE] transition-all duration-300 ${
+          collapsed
+            ? 'px-2 py-3.5 flex flex-col items-center gap-2.5'
+            : 'px-4 py-5 flex items-center justify-between'
+        }`}
+      >
+        <div className={`flex items-center ${collapsed ? 'justify-center' : 'gap-3 overflow-hidden'}`}>
+          <NavLink
+            to="/"
+            className="relative w-10 h-10 rounded-xl bg-[#8B9A6E] p-[1px] shadow-glow-sage flex-shrink-0 block cursor-pointer"
+            title="VTrack Pulse Dashboard"
+          >
             <div className="w-full h-full rounded-[11px] bg-[#F7F2EB] flex items-center justify-center">
               <svg viewBox="0 0 32 32" className="w-5 h-5" fill="none">
                 <path
@@ -65,7 +75,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 </defs>
               </svg>
             </div>
-          </div>
+          </NavLink>
           {!collapsed && (
             <div className="min-w-0">
               <div className="flex items-center gap-1.5">
@@ -84,7 +94,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {/* Desktop collapse button */}
         <button
           onClick={onToggleCollapse}
-          className="hidden lg:flex w-7 h-7 items-center justify-center rounded-lg bg-[#EEEEEE] border border-[#D4CFC7] text-[#5C6356] hover:text-[#23281E] hover:border-[#8B9A6E] transition-colors"
+          className="hidden lg:flex w-7 h-7 items-center justify-center rounded-lg bg-[#EEEEEE] border border-[#D4CFC7] text-[#5C6356] hover:text-[#23281E] hover:border-[#8B9A6E] transition-colors flex-shrink-0"
           title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
         >
           {collapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
