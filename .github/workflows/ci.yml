@@ -1,4 +1,4 @@
-name: CI
+name: CI/CD Pipeline
 
 on:
   push:
@@ -6,7 +6,18 @@ on:
   pull_request:
     branches: [main]
 
+env:
+  AWS_REGION: ap-south-1
+  ECR_REPOSITORY: vtrack-backend
+  ECS_CLUSTER: vtrack-cluster
+  ECS_SERVICE: vtrack-backend-svc
+  S3_BUCKET: vtrack-frontend-206744325548
+  ALB_URL: http://vtrack-alb-425233347.ap-south-1.elb.amazonaws.com
+  WS_URL: ws://vtrack-alb-425233347.ap-south-1.elb.amazonaws.com/ws/alerts
+  CARTO_API_KEY: cb1_57qs_1_8f710b891e613b05602f020f
+
 jobs:
+  # ── 1. Backend Unit & Race Tests ─────────────────────────────────────────────
   backend-test:
     name: Backend Tests
     runs-on: ubuntu-latest
@@ -27,56 +38,35 @@ jobs:
           --health-retries 10
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.23"
+          go-version: "1.25"
           cache-dependency-path: backend/go.sum
 
-      - name: Download modules
+      - name: Download Go Modules
         run: cd backend && go mod download
 
-      - name: Run unit tests
+      - name: Run Unit Tests
         run: cd backend && go test ./tests/... -v -count=1
 
-      - name: Run tests with race detector
+      - name: Run Tests with Race Detector
         run: cd backend && go test -race ./tests/... -count=1
 
-      - name: Build
+      - name: Build Binary
         run: cd backend && go build ./cmd/api
 
-  backend-docker:
-    name: Build & Push Docker Image
-    runs-on: ubuntu-latest
-    needs: backend-test
-    if: github.ref == 'refs/heads/main'
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Build and push
-        uses: docker/build-push-action@v5
-        with:
-          context: ./backend
-          push: true
-          tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/vtrack-backend:latest
-            ${{ secrets.DOCKERHUB_USERNAME }}/vtrack-backend:${{ github.sha }}
-
-  frontend-build:
-    name: Frontend Build
+  # ── 2. Frontend Type Check & Build ──────────────────────────────────────────
+  frontend-test:
+    name: Frontend Typecheck & Build
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -85,8 +75,98 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
-      - name: Install dependencies
+      - name: Install Dependencies
         run: cd frontend && npm ci
 
-      - name: Type check + build
+      - name: Type Check & Test Build
         run: cd frontend && npm run build
+
+  # ── 3. Deploy Backend to AWS (ECR + ECS Fargate) ───────────────────────────
+  deploy-backend:
+    name: Deploy Backend (ECS Fargate)
+    runs-on: ubuntu-latest
+    needs: backend-test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Log in to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up QEMU (for ARM64 build)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and Push Docker Image (ARM64 Graviton)
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          platforms: linux/arm64
+          push: true
+          tags: |
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:latest
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+
+      - name: Deploy to Amazon ECS Service
+        run: |
+          aws ecs update-service \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --service ${{ env.ECS_SERVICE }} \
+            --force-new-deployment
+
+      - name: Wait for ECS Service Stability
+        run: |
+          aws ecs wait services-stable \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --services ${{ env.ECS_SERVICE }}
+
+  # ── 4. Deploy Frontend to AWS (S3 Website) ──────────────────────────────────
+  deploy-frontend:
+    name: Deploy Frontend (S3 Website)
+    runs-on: ubuntu-latest
+    needs: frontend-test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Dependencies
+        run: cd frontend && npm ci
+
+      - name: Build Frontend for Production
+        env:
+          VITE_API_BASE_URL: ${{ env.ALB_URL }}
+          VITE_WS_URL: ${{ env.WS_URL }}
+          VITE_CARTO_API_KEY: ${{ env.CARTO_API_KEY }}
+        run: cd frontend && npm run build
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Sync Build to S3 Website Bucket
+        run: |
+          aws s3 sync frontend/dist s3://${{ env.S3_BUCKET }} --delete
