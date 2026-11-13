@@ -64,7 +64,28 @@ type CreateVehicleRequest struct {
 	Phone         string `json:"phone"`
 }
 
-// ─── Vehicle Location ────────────────────────────────────────────────────────
+// UpdateVehicleRequest is the inbound payload for PATCH /vehicles/{id}.
+// All fields are optional — only non-empty values are applied.
+// vehicle_number is intentionally NOT updatable (would break violation history).
+type UpdateVehicleRequest struct {
+	DriverName  string `json:"driver_name"`
+	VehicleType string `json:"vehicle_type"`
+	Phone       string `json:"phone"`
+}
+
+// UpdateGeofenceRequest is the inbound payload for PATCH /geofences/{id}.
+// Coordinates are NOT updatable after creation.
+type UpdateGeofenceRequest struct {
+	Name     string           `json:"name"`
+	Category GeofenceCategory `json:"category"`
+}
+
+// UpdateAlertRuleRequest is the inbound payload for PATCH /alert-rules/{id}.
+type UpdateAlertRuleRequest struct {
+	Name      string         `json:"name"`
+	EventType AlertEventType `json:"event_type"`
+	IsActive  *bool          `json:"is_active"`
+}
 
 // VehicleLocation stores the latest accepted GPS fix for a vehicle.
 type VehicleLocation struct {

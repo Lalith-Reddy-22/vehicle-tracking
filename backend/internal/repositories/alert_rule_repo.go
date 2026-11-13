@@ -80,6 +80,42 @@ func (r *AlertRuleRepository) FindMatchingTx(ctx context.Context, tx pgx.Tx, veh
 	return scanAlertRuleRows(rows)
 }
 
+// Update patches an alert rule's mutable fields.
+func (r *AlertRuleRepository) Update(ctx context.Context, id string, req *models.UpdateAlertRuleRequest) (*models.AlertRule, error) {
+	var rule models.AlertRule
+	err := r.pool.QueryRow(ctx, `
+		UPDATE alert_rules
+		SET name       = COALESCE(NULLIF($2, ''), name),
+		    event_type = CASE WHEN $3 = '' THEN event_type ELSE $3::text END,
+		    is_active  = COALESCE($4, is_active),
+		    updated_at = NOW()
+		WHERE id = $1
+		RETURNING id, name, vehicle_id, geofence_id, event_type, is_active, created_at, updated_at
+	`, id, req.Name, stringOrEmpty(req.EventType), req.IsActive).
+		Scan(&rule.ID, &rule.Name, &rule.VehicleID, &rule.GeofenceID,
+			&rule.EventType, &rule.IsActive, &rule.CreatedAt, &rule.UpdatedAt)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("update alert rule: %w", err)
+	}
+	return &rule, nil
+}
+
+// Delete removes an alert rule by ID. Returns false when not found.
+func (r *AlertRuleRepository) Delete(ctx context.Context, id string) (bool, error) {
+	tag, err := r.pool.Exec(ctx, `DELETE FROM alert_rules WHERE id = $1`, id)
+	if err != nil {
+		return false, fmt.Errorf("delete alert rule: %w", err)
+	}
+	return tag.RowsAffected() > 0, nil
+}
+
+func stringOrEmpty(s models.AlertEventType) string {
+	return string(s)
+}
+
 func scanAlertRuleRows(rows pgx.Rows) ([]models.AlertRule, error) {
 	var rules []models.AlertRule
 	for rows.Next() {

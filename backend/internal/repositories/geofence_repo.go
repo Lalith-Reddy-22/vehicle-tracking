@@ -98,7 +98,44 @@ func (r *GeofenceRepository) GetByID(ctx context.Context, id string) (*models.Ge
 	return &g, nil
 }
 
-// FindContaining returns all geofences whose polygon ST_Covers the given point.
+// Update patches a geofence's name and/or category.
+// Coordinates are immutable after creation (would change violation history meaning).
+func (r *GeofenceRepository) Update(ctx context.Context, id, name string, category models.GeofenceCategory) (*models.Geofence, error) {
+	var ringJSON string
+	var g models.Geofence
+	err := r.pool.QueryRow(ctx, `
+		UPDATE geofences
+		SET name       = COALESCE(NULLIF($2, ''), name),
+		    category   = CASE WHEN $3 = '' THEN category ELSE $3::text END,
+		    updated_at = NOW()
+		WHERE id = $1
+		RETURNING id, name, category,
+		          (ST_AsGeoJSON(geom)::json -> 'coordinates' -> 0)::text,
+		          created_at, updated_at
+	`, id, name, string(category)).
+		Scan(&g.ID, &g.Name, &g.Category, &ringJSON, &g.CreatedAt, &g.UpdatedAt)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("update geofence: %w", err)
+	}
+	coords, err := parseGeoJSONRing([]byte(ringJSON))
+	if err != nil {
+		return nil, err
+	}
+	g.Coordinates = coords
+	return &g, nil
+}
+
+// Delete removes a geofence by ID. Returns false when not found.
+func (r *GeofenceRepository) Delete(ctx context.Context, id string) (bool, error) {
+	tag, err := r.pool.Exec(ctx, `DELETE FROM geofences WHERE id = $1`, id)
+	if err != nil {
+		return false, fmt.Errorf("delete geofence: %w", err)
+	}
+	return tag.RowsAffected() > 0, nil
+}
 // Uses ST_Covers (not ST_Contains) so boundary points are treated as inside.
 // ST_MakePoint expects (longitude, latitude) — the geospatial package owns
 // this conversion; here we pass the already-converted lon first.

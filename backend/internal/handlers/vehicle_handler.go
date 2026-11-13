@@ -140,10 +140,48 @@ func (h *VehicleHandler) GetCurrentLocation(w http.ResponseWriter, r *http.Reque
 	utils.JSON(w, http.StatusOK, resp)
 }
 
+// Update handles PATCH /vehicles/{id}.
+func (h *VehicleHandler) Update(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	var req models.UpdateVehicleRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		utils.Error(w, http.StatusBadRequest, "invalid_json", "Request body is not valid JSON")
+		return
+	}
+
+	vehicle, err := h.repo.Update(r.Context(), id, &req)
+	if err != nil {
+		utils.InternalError(w)
+		return
+	}
+	if vehicle == nil {
+		utils.Error(w, http.StatusNotFound, "not_found", "Vehicle not found")
+		return
+	}
+	utils.JSON(w, http.StatusOK, vehicle)
+}
+
+// Delete handles DELETE /vehicles/{id}.
+func (h *VehicleHandler) Delete(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	found, err := h.repo.Delete(r.Context(), id)
+	if err != nil {
+		utils.InternalError(w)
+		return
+	}
+	if !found {
+		utils.Error(w, http.StatusNotFound, "not_found", "Vehicle not found")
+		return
+	}
+	utils.JSON(w, http.StatusOK, map[string]string{"message": "Vehicle deleted"})
+}
+
 // RegisterRoutes mounts vehicle routes onto the given Chi router.
 func (h *VehicleHandler) RegisterRoutes(r chi.Router) {
 	r.Post("/vehicles", h.Create)
 	r.Get("/vehicles", h.List)
+	r.Patch("/vehicles/{id}", h.Update)
+	r.Delete("/vehicles/{id}", h.Delete)
 	r.Post("/vehicles/location", h.UpdateLocation)
 	r.Get("/vehicles/location/{id}", h.GetCurrentLocation)
 }

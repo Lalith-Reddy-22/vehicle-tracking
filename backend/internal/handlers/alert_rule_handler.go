@@ -59,8 +59,55 @@ func (h *AlertRuleHandler) List(w http.ResponseWriter, r *http.Request) {
 	utils.JSON(w, http.StatusOK, map[string]any{"data": rules})
 }
 
+// Update handles PATCH /alert-rules/{id}.
+func (h *AlertRuleHandler) Update(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	var req models.UpdateAlertRuleRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		utils.Error(w, http.StatusBadRequest, "invalid_json", "Request body is not valid JSON")
+		return
+	}
+	if req.EventType != "" {
+		switch req.EventType {
+		case models.AlertEventEnter, models.AlertEventExit, models.AlertEventBoth:
+		default:
+			utils.Error(w, http.StatusUnprocessableEntity, "validation_error",
+				"event_type must be one of: enter, exit, both")
+			return
+		}
+	}
+
+	rule, err := h.repo.Update(r.Context(), id, &req)
+	if err != nil {
+		utils.InternalError(w)
+		return
+	}
+	if rule == nil {
+		utils.Error(w, http.StatusNotFound, "not_found", "Alert rule not found")
+		return
+	}
+	utils.JSON(w, http.StatusOK, rule)
+}
+
+// Delete handles DELETE /alert-rules/{id}.
+func (h *AlertRuleHandler) Delete(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	found, err := h.repo.Delete(r.Context(), id)
+	if err != nil {
+		utils.InternalError(w)
+		return
+	}
+	if !found {
+		utils.Error(w, http.StatusNotFound, "not_found", "Alert rule not found")
+		return
+	}
+	utils.JSON(w, http.StatusOK, map[string]string{"message": "Alert rule deleted"})
+}
+
 // RegisterRoutes mounts alert-rule routes.
 func (h *AlertRuleHandler) RegisterRoutes(r chi.Router) {
 	r.Post("/alert-rules", h.Create)
 	r.Get("/alert-rules", h.List)
+	r.Patch("/alert-rules/{id}", h.Update)
+	r.Delete("/alert-rules/{id}", h.Delete)
 }

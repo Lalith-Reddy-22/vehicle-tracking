@@ -78,6 +78,37 @@ func (r *VehicleRepository) GetByID(ctx context.Context, id string) (*models.Veh
 	return &v, nil
 }
 
+// Update patches a vehicle's editable fields. Returns the updated record.
+func (r *VehicleRepository) Update(ctx context.Context, id string, req *models.UpdateVehicleRequest) (*models.Vehicle, error) {
+	var v models.Vehicle
+	err := r.pool.QueryRow(ctx, `
+		UPDATE vehicles
+		SET driver_name   = COALESCE(NULLIF($2, ''), driver_name),
+		    vehicle_type  = COALESCE(NULLIF($3, ''), vehicle_type),
+		    phone         = COALESCE(NULLIF($4, ''), phone),
+		    updated_at    = NOW()
+		WHERE id = $1
+		RETURNING id, vehicle_number, driver_name, vehicle_type, phone, created_at, updated_at
+	`, id, req.DriverName, req.VehicleType, req.Phone).
+		Scan(&v.ID, &v.VehicleNumber, &v.DriverName, &v.VehicleType, &v.Phone, &v.CreatedAt, &v.UpdatedAt)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("update vehicle: %w", err)
+	}
+	return &v, nil
+}
+
+// Delete removes a vehicle by ID. Returns false when not found.
+func (r *VehicleRepository) Delete(ctx context.Context, id string) (bool, error) {
+	tag, err := r.pool.Exec(ctx, `DELETE FROM vehicles WHERE id = $1`, id)
+	if err != nil {
+		return false, fmt.Errorf("delete vehicle: %w", err)
+	}
+	return tag.RowsAffected() > 0, nil
+}
+
 // ─── Sentinel errors ─────────────────────────────────────────────────────────
 
 // ErrDuplicateVehicleNumber is returned when a vehicle_number already exists.

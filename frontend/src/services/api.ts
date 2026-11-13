@@ -32,6 +32,12 @@ export const getGeofences = (category?: string): Promise<{ data: Geofence[] }> =
 export const createGeofence = (req: CreateGeofenceRequest): Promise<Geofence> =>
   api.post('/geofences', req).then(r => r.data);
 
+export const updateGeofence = (id: string, req: { name?: string; category?: string }): Promise<Geofence> =>
+  api.patch(`/geofences/${id}`, req).then(r => r.data);
+
+export const deleteGeofence = (id: string): Promise<void> =>
+  api.delete(`/geofences/${id}`).then(() => undefined);
+
 // ── Vehicles ──────────────────────────────────────────────────────────────────
 
 export const getVehicles = (): Promise<{ data: Vehicle[] }> =>
@@ -39,6 +45,12 @@ export const getVehicles = (): Promise<{ data: Vehicle[] }> =>
 
 export const createVehicle = (req: CreateVehicleRequest): Promise<Vehicle> =>
   api.post('/vehicles', req).then(r => r.data);
+
+export const updateVehicle = (id: string, req: { driver_name?: string; vehicle_type?: string; phone?: string }): Promise<Vehicle> =>
+  api.patch(`/vehicles/${id}`, req).then(r => r.data);
+
+export const deleteVehicle = (id: string): Promise<void> =>
+  api.delete(`/vehicles/${id}`).then(() => undefined);
 
 export const getVehicleLocation = (id: string): Promise<CurrentLocationResponse> =>
   api.get(`/vehicles/location/${id}`).then(r => r.data);
@@ -53,6 +65,12 @@ export const getAlertRules = (): Promise<{ data: AlertRule[] }> =>
 
 export const createAlertRule = (req: CreateAlertRuleRequest): Promise<AlertRule> =>
   api.post('/alert-rules', req).then(r => r.data);
+
+export const updateAlertRule = (id: string, req: { name?: string; event_type?: string; is_active?: boolean }): Promise<AlertRule> =>
+  api.patch(`/alert-rules/${id}`, req).then(r => r.data);
+
+export const deleteAlertRule = (id: string): Promise<void> =>
+  api.delete(`/alert-rules/${id}`).then(() => undefined);
 
 // ── Stats ─────────────────────────────────────────────────────────────────────
 

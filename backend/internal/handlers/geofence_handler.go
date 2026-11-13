@@ -94,8 +94,56 @@ func (h *GeofenceHandler) List(w http.ResponseWriter, r *http.Request) {
 	utils.JSON(w, http.StatusOK, map[string]any{"data": geofences})
 }
 
+// Update handles PATCH /geofences/{id}.
+func (h *GeofenceHandler) Update(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	var req models.UpdateGeofenceRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		utils.Error(w, http.StatusBadRequest, "invalid_json", "Request body is not valid JSON")
+		return
+	}
+	if req.Category != "" {
+		switch req.Category {
+		case models.CategoryDeliveryZone, models.CategoryRestrictedZone,
+			models.CategoryTollZone, models.CategoryCustomerArea:
+		default:
+			utils.Error(w, http.StatusUnprocessableEntity, "validation_error",
+				"category must be one of: delivery_zone, restricted_zone, toll_zone, customer_area")
+			return
+		}
+	}
+
+	geofence, err := h.repo.Update(r.Context(), id, req.Name, req.Category)
+	if err != nil {
+		utils.InternalError(w)
+		return
+	}
+	if geofence == nil {
+		utils.Error(w, http.StatusNotFound, "not_found", "Geofence not found")
+		return
+	}
+	utils.JSON(w, http.StatusOK, geofence)
+}
+
+// Delete handles DELETE /geofences/{id}.
+func (h *GeofenceHandler) Delete(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	found, err := h.repo.Delete(r.Context(), id)
+	if err != nil {
+		utils.InternalError(w)
+		return
+	}
+	if !found {
+		utils.Error(w, http.StatusNotFound, "not_found", "Geofence not found")
+		return
+	}
+	utils.JSON(w, http.StatusOK, map[string]string{"message": "Geofence deleted"})
+}
+
 // RegisterRoutes mounts geofence routes onto the given Chi router.
 func (h *GeofenceHandler) RegisterRoutes(r chi.Router) {
 	r.Post("/geofences", h.Create)
 	r.Get("/geofences", h.List)
+	r.Patch("/geofences/{id}", h.Update)
+	r.Delete("/geofences/{id}", h.Delete)
 }

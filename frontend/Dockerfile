@@ -11,8 +11,10 @@ COPY . .
 # Build args become env vars at build time for Vite
 ARG VITE_API_BASE_URL=http://localhost:8080
 ARG VITE_WS_URL=ws://localhost:8080/ws/alerts
+ARG VITE_CARTO_API_KEY=
 ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
 ENV VITE_WS_URL=$VITE_WS_URL
+ENV VITE_CARTO_API_KEY=$VITE_CARTO_API_KEY
 
 RUN npm run build
 

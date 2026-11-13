@@ -1,4 +1,4 @@
-// Central TypeScript type definitions — mirrors the Go models exactly.
+// Central TypeScript type definitions — mirrors the Go models.
 // All API responses are typed here.
 
 export interface Coordinate {
@@ -98,8 +98,9 @@ export type AlertEventType = 'enter' | 'exit' | 'both';
 
 export interface AlertRule {
   id: string;
+  name?: string;
   vehicle_id: string | null;
-  geofence_id: string;
+  geofence_id: string | null;
   event_type: AlertEventType;
   is_active: boolean;
   created_at: string;
@@ -107,8 +108,9 @@ export interface AlertRule {
 }
 
 export interface CreateAlertRuleRequest {
+  name?: string;
   vehicle_id?: string | null;
-  geofence_id: string;
+  geofence_id?: string | null;
   event_type: AlertEventType;
   is_active?: boolean;
 }
@@ -149,3 +151,5 @@ export interface WSAlert {
   timestamp: string;
   message: string;
 }
+
+export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected';

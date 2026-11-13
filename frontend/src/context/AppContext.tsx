@@ -14,6 +14,7 @@ interface AppContextValue {
   refreshVehicles: () => Promise<void>;
   refreshGeofences: () => Promise<void>;
   addAlert: (alert: WSAlert) => void;
+  clearAlerts: () => void;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -26,7 +27,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const refreshVehicles = useCallback(async () => {
     try {
       const res = await getVehicles();
-      setVehicles(res.data);
+      setVehicles(res.data || []);
     } catch (err) {
       console.error('Failed to load vehicles', err);
     }
@@ -35,7 +36,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const refreshGeofences = useCallback(async () => {
     try {
       const res = await getGeofences();
-      setGeofences(res.data);
+      setGeofences(res.data || []);
     } catch (err) {
       console.error('Failed to load geofences', err);
     }
@@ -45,13 +46,28 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setRecentAlerts(prev => [alert, ...prev].slice(0, 50)); // keep last 50
   }, []);
 
+  const clearAlerts = useCallback(() => {
+    setRecentAlerts([]);
+  }, []);
+
   return (
-    <AppContext.Provider value={{ vehicles, geofences, recentAlerts, refreshVehicles, refreshGeofences, addAlert }}>
+    <AppContext.Provider
+      value={{
+        vehicles,
+        geofences,
+        recentAlerts,
+        refreshVehicles,
+        refreshGeofences,
+        addAlert,
+        clearAlerts,
+      }}
+    >
       {children}
     </AppContext.Provider>
   );
 };
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const useAppContext = (): AppContextValue => {
   const ctx = useContext(AppContext);
   if (!ctx) throw new Error('useAppContext must be used inside AppProvider');

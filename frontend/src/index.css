@@ -2,21 +2,165 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Leaflet map must be full-height when inside a flex container */
+@layer base {
+  html,
+  body {
+    background-color: #F7F2EB;
+    color: #23281E;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  }
+
+  :root {
+    color-scheme: light;
+  }
+}
+
+@layer components {
+  .glass-panel {
+    @apply bg-[#EAE2D6]/95 backdrop-blur-xl border border-[#D6CCBE] shadow-warm-card;
+  }
+
+  .glass-card {
+    @apply relative overflow-hidden rounded-2xl bg-[#EAE2D6]/85 backdrop-blur-xl border border-[#D6CCBE] shadow-warm-card transition-all duration-300;
+  }
+
+  .glass-card-hover {
+    @apply glass-card hover:border-[#8B9A6E]/60 hover:bg-[#EAE2D6] hover:-translate-y-0.5 hover:shadow-warm-hover;
+  }
+
+  .cyber-input {
+    @apply w-full rounded-xl bg-[#EEEEEE] border border-[#D4CFC7] px-3.5 py-2.5 text-sm text-[#23281E] placeholder-[#7B8273] transition-all focus:outline-none focus:bg-[#F7F2EB] focus:border-[#8B9A6E] focus:ring-2 focus:ring-[#8B9A6E]/25;
+  }
+
+  .cyber-btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl bg-[#8B9A6E] hover:bg-[#728056] px-4 py-2.5 text-sm font-semibold text-[#F7F2EB] shadow-glow-sage transition-all duration-200 hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50 disabled:pointer-events-none;
+  }
+
+  .cyber-btn-secondary {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl bg-[#EEEEEE] border border-[#D4CFC7] px-4 py-2.5 text-sm font-medium text-[#23281E] transition-all hover:bg-[#E2DDD5] hover:border-[#8B9A6E]/50;
+  }
+}
+
+@layer utilities {
+  .shadow-glow-sage {
+    box-shadow: 0 8px 24px -6px rgba(139, 154, 110, 0.38);
+  }
+
+  .shadow-warm-card {
+    box-shadow: 0 8px 28px -8px rgba(66, 60, 48, 0.10);
+  }
+
+  .shadow-warm-hover {
+    box-shadow: 0 14px 36px -10px rgba(139, 154, 110, 0.25);
+  }
+}
+
+/* Subtle organic coordinate grid background */
+.bg-cyber-grid {
+  background-image:
+    linear-gradient(to right, rgba(139, 154, 110, 0.09) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(139, 154, 110, 0.09) 1px, transparent 1px);
+  background-size: 36px 36px;
+}
+
+/* Leaflet map full height */
 .leaflet-container {
   width: 100%;
   height: 100%;
   z-index: 0;
+  background: #EAE2D6 !important;
+  font-family: 'Inter', system-ui, sans-serif;
 }
 
-/* Smooth scrollbar for the sidebar */
-::-webkit-scrollbar {
-  width: 4px;
+/* Warm light Leaflet controls & popups */
+.leaflet-popup-content-wrapper,
+.leaflet-popup-tip {
+  background: rgba(247, 242, 235, 0.97) !important;
+  backdrop-filter: blur(14px);
+  color: #23281E !important;
+  border: 1px solid #D6CCBE;
+  box-shadow: 0 14px 32px rgba(35, 40, 30, 0.16) !important;
 }
+
+.leaflet-popup-content-wrapper {
+  border-radius: 14px !important;
+}
+
+.leaflet-popup-close-button {
+  color: #5C6356 !important;
+  padding: 6px 8px 0 0 !important;
+}
+
+.leaflet-popup-close-button:hover {
+  color: #596543 !important;
+}
+
+.leaflet-tooltip {
+  background: rgba(247, 242, 235, 0.96) !important;
+  border: 1px solid rgba(139, 154, 110, 0.55) !important;
+  color: #23281E !important;
+  border-radius: 8px !important;
+  padding: 4px 10px !important;
+  font-size: 12px !important;
+  font-weight: 500;
+  box-shadow: 0 8px 20px rgba(35, 40, 30, 0.14) !important;
+}
+
+.leaflet-tooltip-top:before {
+  border-top-color: rgba(139, 154, 110, 0.55) !important;
+}
+
+.leaflet-control-zoom {
+  border: 1px solid #D6CCBE !important;
+  border-radius: 12px !important;
+  overflow: hidden;
+  box-shadow: 0 8px 20px rgba(35, 40, 30, 0.12) !important;
+}
+
+.leaflet-control-zoom a {
+  background: rgba(247, 242, 235, 0.94) !important;
+  color: #23281E !important;
+  border-bottom: 1px solid #D6CCBE !important;
+  backdrop-filter: blur(12px);
+}
+
+.leaflet-control-zoom a:hover {
+  background: #EAE2D6 !important;
+  color: #596543 !important;
+}
+
+.leaflet-control-attribution {
+  background: rgba(247, 242, 235, 0.85) !important;
+  color: #5C6356 !important;
+  font-size: 10px !important;
+  backdrop-filter: blur(8px);
+}
+
+.leaflet-control-attribution a {
+  color: #596543 !important;
+}
+
+/* Custom pulsing vehicle marker on map */
+.vtrack-div-icon {
+  background: transparent;
+  border: none;
+}
+
+/* Smooth warm scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
 ::-webkit-scrollbar-track {
   background: transparent;
 }
+
 ::-webkit-scrollbar-thumb {
-  background-color: rgba(100, 116, 139, 0.4);
-  border-radius: 2px;
+  background: rgba(139, 154, 110, 0.35);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(139, 154, 110, 0.65);
 }
